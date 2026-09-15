@@ -385,8 +385,43 @@ const App = (() => {
     showToast('Đã chuyển sang Tra cứu AI Miễn Phí', 'info');
   }
 
-  // 1. Free Dictionary + Free Translation Fallback Engine
+  // Fast translation provider via Google Translate GTX (~50ms)
+  async function fetchFastTranslation(word) {
+    try {
+      const resp = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&q=${encodeURIComponent(word)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data[0] && data[0][0] && data[0][0][0]) {
+          return data[0][0][0].toLowerCase().trim();
+        }
+      }
+    } catch (e) {
+      console.warn('Fast GTX Translation error:', e);
+    }
+
+    try {
+      const resp = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const text = data.responseData?.translatedText;
+        if (text && !text.includes('mymemory') && !text.includes('quota')) {
+          return text.toLowerCase().trim();
+        }
+      }
+    } catch (e) {
+      console.warn('MyMemory Translation fallback failed:', e);
+    }
+
+    return '';
+  }
+
+  // 1. Parallel Free AI Engine with In-Memory Cache
   async function fetchFreeAISuggestions(word) {
+    const key = word.toLowerCase().trim();
+    if (aiCache.has(key)) {
+      return aiCache.get(key);
+    }
+
     let result = {
       word: word,
       pronunciation: '',
@@ -400,60 +435,43 @@ const App = (() => {
       audioUrl: ''
     };
 
-    try {
-      // Step A: Free Dictionary API
-      const dictResp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
-      if (dictResp.ok) {
-        const dictData = await dictResp.json();
-        const entry = dictData[0];
-        if (entry) {
-          // Pronunciation
-          result.pronunciation = entry.phonetic || (entry.phonetics && entry.phonetics.find(p => p.text)?.text) || '';
-          
-          // Audio
-          if (entry.phonetics) {
-            const audioObj = entry.phonetics.find(p => p.audio && p.audio.length > 0);
-            if (audioObj) result.audioUrl = audioObj.audio;
-          }
+    // Run Dictionary lookup and Translation concurrently in parallel!
+    const dictPromise = fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(e => { console.warn(e); return null; });
 
-          // Part of Speech & Definition
-          if (entry.meanings && entry.meanings.length > 0) {
-            const meaningObj = entry.meanings[0];
-            result.pos = meaningObj.partOfSpeech || '';
-            
-            if (meaningObj.definitions && meaningObj.definitions.length > 0) {
-              const def = meaningObj.definitions[0];
-              if (def.example) result.originalSentence = def.example;
-            }
+    const transPromise = fetchFastTranslation(word);
 
-            // Synonyms
-            if (meaningObj.synonyms && meaningObj.synonyms.length > 0) {
-              result.synonyms = meaningObj.synonyms.slice(0, 4).join(', ');
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Free Dictionary API call failed:', e);
+    const [dictData, meaning] = await Promise.all([dictPromise, transPromise]);
+
+    if (meaning) {
+      result.meaning = meaning;
     }
 
-    try {
-      // Step B: Free Translation API (MyMemory)
-      const transResp = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`);
-      if (transResp.ok) {
-        const transData = await transResp.json();
-        if (transData.responseData && transData.responseData.translatedText) {
-          let translated = transData.responseData.translatedText.toLowerCase();
-          if (!translated.includes('mymemory') && !translated.includes('quota')) {
-            result.meaning = translated;
-          }
+    if (dictData && dictData[0]) {
+      const entry = dictData[0];
+      result.pronunciation = entry.phonetic || (entry.phonetics && entry.phonetics.find(p => p.text)?.text) || '';
+
+      if (entry.phonetics) {
+        const audioObj = entry.phonetics.find(p => p.audio && p.audio.length > 0);
+        if (audioObj) result.audioUrl = audioObj.audio;
+      }
+
+      if (entry.meanings && entry.meanings.length > 0) {
+        const meaningObj = entry.meanings[0];
+        result.pos = meaningObj.partOfSpeech || '';
+        
+        if (meaningObj.definitions && meaningObj.definitions.length > 0) {
+          const def = meaningObj.definitions[0];
+          if (def.example) result.originalSentence = def.example;
+        }
+
+        if (meaningObj.synonyms && meaningObj.synonyms.length > 0) {
+          result.synonyms = meaningObj.synonyms.slice(0, 4).join(', ');
         }
       }
-    } catch (e) {
-      console.warn('MyMemory Translation failed:', e);
     }
 
-    // Step C: Smart Heuristic IELTS Topic & Collocations & Word Family
     result.topic = inferIELTSTopic(word, result.pos, result.originalSentence);
     
     if (!result.collocations) {
@@ -464,11 +482,15 @@ const App = (() => {
       result.wordFamily = generateHeuristicWordFamily(word);
     }
 
+    aiCache.set(key, result);
     return result;
   }
 
   // 2. Gemini AI Flash Engine
   async function fetchGeminiAISuggestions(word, apiKey) {
+    const key = 'gemini_' + word.toLowerCase().trim();
+    if (aiCache.has(key)) return aiCache.get(key);
+
     const prompt = `Return a raw JSON object (no markdown formatting, no triple backticks) for the English word "${word}" tailored for an IELTS student.
 JSON Schema:
 {
@@ -490,7 +512,8 @@ JSON Schema:
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 300, temperature: 0.2 }
       })
     });
 
@@ -502,7 +525,9 @@ JSON Schema:
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
 
-    return JSON.parse(text);
+    const parsed = JSON.parse(text);
+    aiCache.set(key, parsed);
+    return parsed;
   }
 
   // Combined AI lookup dispatcher
@@ -519,7 +544,7 @@ JSON Schema:
       }
     }
 
-    console.log('⚡ Fetching via Free AI Engine...');
+    console.log('⚡ Fetching via Free Fast AI Engine...');
     const freeRes = await fetchFreeAISuggestions(word);
     return { source: 'free', ...freeRes };
   }
@@ -609,7 +634,7 @@ JSON Schema:
     const btn = document.getElementById('btn-ai-suggest');
     const origBtnHTML = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = `<span class="ai-sparkle">⏳</span> Đang tra AI...`;
+    btn.innerHTML = `<span class="ai-sparkle">⏳</span> Tra cứu...`;
 
     try {
       const data = await getAISuggestions(word);
@@ -689,14 +714,14 @@ JSON Schema:
     const audioBtn = document.getElementById('btn-play-audio');
     if (audioBtn) audioBtn.style.display = val ? 'inline-flex' : 'none';
 
-    if (val.length >= 3) {
+    if (val.length >= 2) {
+      // Ultra-fast 350ms debounce
       aiDebounceTimer = setTimeout(() => {
-        // Auto trigger if meaning field is empty
         const currentMeaning = document.getElementById('input-meaning').value.trim();
         if (!currentMeaning) {
           triggerAISuggestion();
         }
-      }, 900);
+      }, 350);
     }
   }
 
@@ -705,9 +730,18 @@ JSON Schema:
     const form = document.getElementById('add-word-form');
     form.addEventListener('submit', handleAddWord);
 
-    // Debounced AI auto-suggest on typing English word
+    // Debounced AI auto-suggest on typing English word & Enter key trigger
     const wordInput = document.getElementById('input-word');
-    if (wordInput) wordInput.addEventListener('input', handleWordInputDebounced);
+    if (wordInput) {
+      wordInput.addEventListener('input', handleWordInputDebounced);
+      wordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          clearTimeout(aiDebounceTimer);
+          triggerAISuggestion();
+        }
+      });
+    }
 
     // Live preview
     ['input-word', 'input-pronunciation', 'input-meaning',
