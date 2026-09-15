@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="IELTS Vocabulary Master — Ứng dụng học từ vựng IELTS với Spaced Repetition, Flashcards và theo dõi tiến độ.">
+  <title>IELTS Vocabulary Master</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+</head>
+<body>
+
+  <!-- Background Ambient -->
+  <div class="bg-ambient">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Confetti Canvas -->
+  <canvas id="confetti-canvas"></canvas>
+
+  <!-- App Layout -->
+  <div class="app-layout">
+
+    <!-- ═══ Sidebar ═══ -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-logo">📖</div>
+        <div class="sidebar-brand">
+          <h1>IELTS Vocab Master</h1>
+          <span>Spaced Repetition System</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-page="dashboard" id="nav-dashboard">
+          <span class="nav-icon">🏠</span>
+          <span>Dashboard</span>
+        </a>
+        <a class="nav-item" data-page="add-word" id="nav-add-word">
+          <span class="nav-icon">➕</span>
+          <span>Thêm Từ</span>
+        </a>
+        <a class="nav-item" data-page="review" id="nav-review">
+          <span class="nav-icon">🔄</span>
+          <span>Ôn Tập</span>
+          <span class="nav-badge hidden" id="review-badge">0</span>
+        </a>
+        <a class="nav-item" data-page="word-bank" id="nav-word-bank">
+          <span class="nav-icon">📚</span>
+          <span>Kho Từ</span>
+        </a>
+        <a class="nav-item" data-page="progress" id="nav-progress">
+          <span class="nav-icon">📊</span>
+          <span>Tiến Độ</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="streak-display">
+          <span class="streak-fire">🔥</span>
+          <div class="streak-info">
+            <div class="streak-count" id="sidebar-streak">0</div>
+            <div class="streak-label">ngày liên tiếp</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ═══ Main Content ═══ -->
+    <main class="main-content">
+
+      <!-- ──── DASHBOARD ──── -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-header">
+          <h2 id="dashboard-greeting">Chào buổi tối! 🌙</h2>
+          <p>Hôm nay bạn đã sẵn sàng để chinh phục từ vựng IELTS chưa?</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="dashboard-stats">
+          <div class="stat-card">
+            <div class="stat-icon primary">📝</div>
+            <div class="stat-value primary" id="stat-total">0</div>
+            <div class="stat-label">Tổng từ vựng</div>
+            <div class="stat-glow" style="background:var(--color-primary)"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon accent">🔄</div>
+            <div class="stat-value accent" id="stat-due">0</div>
+            <div class="stat-label">Cần ôn hôm nay</div>
+            <div class="stat-glow" style="background:var(--color-accent)"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon success">✅</div>
+            <div class="stat-value success" id="stat-mastered">0</div>
+            <div class="stat-label">Đã thuộc</div>
+            <div class="stat-glow" style="background:var(--color-success)"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon warning">🔥</div>
+            <div class="stat-value warning" id="stat-streak">0</div>
+            <div class="stat-label">Ngày liên tiếp</div>
+            <div class="stat-glow" style="background:var(--color-warning)"></div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="quick-actions">
+          <div class="action-btn action-add" onclick="App.navigate('add-word')">
+            <div class="action-icon">➕</div>
+            <div class="action-text">
+              <h3>Thêm Từ Mới</h3>
+              <p>Ghi chép từ vựng theo mẫu chuẩn ERRU</p>
+            </div>
+          </div>
+          <div class="action-btn action-review" onclick="App.navigate('review')">
+            <div class="action-icon">🔄</div>
+            <div class="action-text">
+              <h3>Bắt Đầu Ôn Tập</h3>
+              <p id="action-review-desc">Flashcards với Spaced Repetition</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dashboard Grid -->
+        <div class="dashboard-grid">
+          <!-- Recent Words -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">📖 Từ Vựng Gần Đây</h3>
+            <div class="recent-words-list" id="recent-words-list">
+              <div class="wordbank-empty" style="padding:var(--space-lg)">
+                <p class="text-muted">Chưa có từ vựng nào. Hãy thêm từ mới!</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Topics Distribution -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">📊 Phân Bố Theo Chủ Đề</h3>
+            <div class="topic-bars" id="topic-bars">
+              <div class="wordbank-empty" style="padding:var(--space-lg)">
+                <p class="text-muted">Thêm từ vựng để xem phân bố chủ đề.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ──── ADD WORD ──── -->
+      <section class="page" id="page-add-word">
+        <div class="page-header">
+          <h2>➕ <span class="gradient-text">Thêm Từ Mới</span></h2>
+          <p>Ghi chép từ vựng theo phương pháp ERRU — đầy đủ ngữ cảnh để nhớ lâu</p>
+        </div>
+
+        <div class="add-word-layout">
+          <!-- Form -->
+          <div class="glass-card">
+            <form id="add-word-form" autocomplete="off">
+              <!-- Basic Info -->
+              <div class="form-section">
+                <div class="form-section-title">📌 Thông Tin Cơ Bản</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Từ vựng <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="input-word" placeholder="vd: abandon" required>
+                  </div>
+                  <div class="form-group">
+                    <label>Phát âm (IPA)</label>
+                    <input type="text" class="form-input" id="input-pronunciation" placeholder="vd: /əˈbæn.dən/">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Nghĩa tiếng Việt <span class="required">*</span></label>
+                    <input type="text" class="form-input" id="input-meaning" placeholder="vd: từ bỏ, rời bỏ" required>
+                  </div>
+                  <div class="form-group">
+                    <label>Loại từ</label>
+                    <select class="form-select" id="input-pos">
+                      <option value="">-- Chọn --</option>
+                      <option value="noun">Noun (Danh từ)</option>
+                      <option value="verb">Verb (Động từ)</option>
+                      <option value="adjective">Adjective (Tính từ)</option>
+                      <option value="adverb">Adverb (Trạng từ)</option>
+                      <option value="preposition">Preposition (Giới từ)</option>
+                      <option value="conjunction">Conjunction (Liên từ)</option>
+                      <option value="phrase">Phrase (Cụm từ)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Collocations -->
+              <div class="form-section">
+                <div class="form-section-title">🔗 Collocations</div>
+                <div class="form-group">
+                  <label>Các collocation phổ biến</label>
+                  <input type="text" class="form-input" id="input-collocations" placeholder="vd: abandon hope, abandon a plan, abandon ship">
+                  <div class="form-hint">Phân cách bằng dấu phẩy</div>
+                </div>
+              </div>
+
+              <!-- Word Family -->
+              <div class="form-section">
+                <div class="form-section-title">👪 Word Family</div>
+                <div class="word-family-list" id="word-family-list">
+                  <!-- Dynamic entries -->
+                </div>
+                <button type="button" class="btn-add-family" id="btn-add-family">
+                  ＋ Thêm biến thể từ
+                </button>
+              </div>
+
+              <!-- Context -->
+              <div class="form-section">
+                <div class="form-section-title">📝 Ngữ Cảnh</div>
+                <div class="form-group">
+                  <label>Câu gốc (từ nguồn đọc)</label>
+                  <textarea class="form-textarea" id="input-original-sentence" placeholder="Dán câu chứa từ mới mà bạn gặp khi đọc/nghe..."></textarea>
+                </div>
+                <div class="form-group">
+                  <label>Câu tự đặt</label>
+                  <textarea class="form-textarea" id="input-personal-sentence" placeholder="Viết câu của riêng bạn sử dụng từ mới..."></textarea>
+                </div>
+              </div>
+
+              <!-- Extra -->
+              <div class="form-section">
+                <div class="form-section-title">🔄 Bổ Sung</div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Synonyms (Từ đồng nghĩa)</label>
+                    <input type="text" class="form-input" id="input-synonyms" placeholder="vd: give up, forsake, desert">
+                    <div class="form-hint">Phân cách bằng dấu phẩy</div>
+                  </div>
+                  <div class="form-group">
+                    <label>Chủ đề IELTS</label>
+                    <select class="form-select" id="input-topic">
+                      <option value="General">General</option>
+                      <option value="Education">Education</option>
+                      <option value="Environment">Environment</option>
+                      <option value="Technology">Technology</option>
+                      <option value="Health">Health</option>
+                      <option value="Society">Society</option>
+                      <option value="Government">Government</option>
+                      <option value="Media">Media</option>
+                      <option value="Globalization">Globalization</option>
+                      <option value="Work & Economy">Work & Economy</option>
+                      <option value="Arts & Culture">Arts & Culture</option>
+                      <option value="Science">Science</option>
+                      <option value="Crime">Crime</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Buttons -->
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-lg" id="btn-save-word">
+                  💾 Lưu Từ Vựng
+                </button>
+                <button type="button" class="btn btn-ghost btn-lg" onclick="App.resetAddForm()">
+                  🗑️ Xóa Form
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Preview Card -->
+          <div class="glass-card preview-card" id="preview-card">
+            <div class="preview-header">
+              <h3>👁️ Xem Trước Flashcard</h3>
+            </div>
+            <div class="preview-word" id="preview-word">word</div>
+            <div class="preview-pronunciation" id="preview-pron"></div>
+            <div class="preview-meaning" id="preview-meaning">nghĩa tiếng Việt</div>
+
+            <div class="preview-section" id="preview-collocations-section" style="display:none">
+              <div class="preview-section-label">Collocations</div>
+              <div class="preview-section-content" id="preview-collocations"></div>
+            </div>
+            <div class="preview-section" id="preview-family-section" style="display:none">
+              <div class="preview-section-label">Word Family</div>
+              <div class="preview-section-content" id="preview-family"></div>
+            </div>
+            <div class="preview-section" id="preview-sentence-section" style="display:none">
+              <div class="preview-section-label">Câu Ví Dụ</div>
+              <div class="preview-section-content" id="preview-sentence"></div>
+            </div>
+            <div class="preview-section" id="preview-synonyms-section" style="display:none">
+              <div class="preview-section-label">Synonyms</div>
+              <div class="preview-tags" id="preview-synonyms"></div>
+            </div>
+            <div class="preview-section" id="preview-topic-section" style="display:none">
+              <div class="preview-section-label">Topic</div>
+              <div class="preview-tags" id="preview-topic"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ──── REVIEW ──── -->
+      <section class="page" id="page-review">
+        <div class="page-header">
+          <h2>🔄 <span class="gradient-text">Ôn Tập Flashcards</span></h2>
+          <p>Sử dụng phím tắt: <span class="kbd">1</span> Again · <span class="kbd">2</span> Hard · <span class="kbd">3</span> Good · <span class="kbd">4</span> Easy · <span class="kbd">Space</span> Lật thẻ</p>
+        </div>
+
+        <div class="review-container">
+          <!-- Review Active State -->
+          <div id="review-active">
+            <!-- Progress Bar -->
+            <div class="review-progress">
+              <div class="review-progress-bar">
+                <div class="review-progress-fill" id="review-progress-fill" style="width:0%"></div>
+              </div>
+              <div class="review-progress-text" id="review-progress-text">0 / 0</div>
+            </div>
+
+            <!-- Flashcard -->
+            <div class="flashcard-wrapper">
+              <div class="flashcard" id="flashcard" onclick="App.flipCard()">
+                <div class="flashcard-face flashcard-front">
+                  <div class="card-word" id="card-word">word</div>
+                  <div class="card-pronunciation" id="card-pronunciation">/pronunciation/</div>
+                  <div class="card-topic-badge" id="card-topic">Topic</div>
+                  <div class="card-hint">
+                    Nhấn để lật · <span class="kbd">Space</span>
+                  </div>
+                </div>
+                <div class="flashcard-face flashcard-back">
+                  <div class="back-word" id="back-word">word</div>
+                  <div class="back-pronunciation" id="back-pronunciation">/pronunciation/</div>
+                  <div class="back-meaning" id="back-meaning">nghĩa</div>
+                  <div class="back-section" id="back-collocations-section">
+                    <div class="back-section-label">Collocations</div>
+                    <div class="back-section-content" id="back-collocations"></div>
+                  </div>
+                  <div class="back-section" id="back-family-section">
+                    <div class="back-section-label">Word Family</div>
+                    <div class="back-section-content" id="back-family"></div>
+                  </div>
+                  <div class="back-section" id="back-sentence-section">
+                    <div class="back-section-label">Câu Ví Dụ</div>
+                    <div class="back-section-content" id="back-sentence"></div>
+                  </div>
+                  <div class="back-section" id="back-synonyms-section">
+                    <div class="back-section-label">Synonyms</div>
+                    <div class="back-section-content" id="back-synonyms"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rating Buttons (hidden until flip) -->
+            <div class="rating-buttons hidden" id="rating-buttons">
+              <button class="rating-btn rating-again" onclick="App.rateCard(0)">
+                <span class="rating-label">Again</span>
+                <span class="rating-interval" id="interval-again">1 ngày</span>
+              </button>
+              <button class="rating-btn rating-hard" onclick="App.rateCard(1)">
+                <span class="rating-label">Hard</span>
+                <span class="rating-interval" id="interval-hard">2 ngày</span>
+              </button>
+              <button class="rating-btn rating-good" onclick="App.rateCard(2)">
+                <span class="rating-label">Good</span>
+                <span class="rating-interval" id="interval-good">3 ngày</span>
+              </button>
+              <button class="rating-btn rating-easy" onclick="App.rateCard(3)">
+                <span class="rating-label">Easy</span>
+                <span class="rating-interval" id="interval-easy">5 ngày</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Review Complete State -->
+          <div class="review-complete hidden" id="review-complete">
+            <div class="complete-icon">🎉</div>
+            <h3>Tuyệt Vời!</h3>
+            <p>Bạn đã hoàn thành ôn tập hôm nay. Tiếp tục phát huy nhé!</p>
+            <div class="review-summary-stats">
+              <div class="summary-stat">
+                <div class="summary-stat-value" id="summary-reviewed" style="color:var(--color-accent)">0</div>
+                <div class="summary-stat-label">Đã ôn</div>
+              </div>
+              <div class="summary-stat">
+                <div class="summary-stat-value" id="summary-again" style="color:var(--color-danger)">0</div>
+                <div class="summary-stat-label">Again</div>
+              </div>
+              <div class="summary-stat">
+                <div class="summary-stat-value" id="summary-good" style="color:var(--color-success)">0</div>
+                <div class="summary-stat-label">Good/Easy</div>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-lg" onclick="App.navigate('dashboard')">
+              🏠 Về Dashboard
+            </button>
+          </div>
+
+          <!-- Review Empty State -->
+          <div class="review-empty hidden" id="review-empty">
+            <div class="empty-icon">🧘</div>
+            <h3>Không có từ cần ôn!</h3>
+            <p>Tất cả từ vựng đã được ôn tập. Hãy thêm từ mới hoặc quay lại sau.</p>
+            <div style="display:flex;gap:var(--space-md);justify-content:center">
+              <button class="btn btn-primary" onclick="App.navigate('add-word')">
+                ➕ Thêm Từ Mới
+              </button>
+              <button class="btn btn-ghost" onclick="App.navigate('dashboard')">
+                🏠 Dashboard
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ──── WORD BANK ──── -->
+      <section class="page" id="page-word-bank">
+        <div class="page-header">
+          <h2>📚 <span class="gradient-text">Kho Từ Vựng</span></h2>
+          <p>Tất cả từ vựng bạn đã thêm, tổ chức theo chủ đề IELTS</p>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="wordbank-toolbar">
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="search-input" placeholder="Tìm kiếm từ vựng...">
+          </div>
+          <select class="filter-select" id="filter-topic">
+            <option value="all">Tất cả chủ đề</option>
+            <option value="General">General</option>
+            <option value="Education">Education</option>
+            <option value="Environment">Environment</option>
+            <option value="Technology">Technology</option>
+            <option value="Health">Health</option>
+            <option value="Society">Society</option>
+            <option value="Government">Government</option>
+            <option value="Media">Media</option>
+            <option value="Globalization">Globalization</option>
+            <option value="Work & Economy">Work & Economy</option>
+            <option value="Arts & Culture">Arts & Culture</option>
+            <option value="Science">Science</option>
+            <option value="Crime">Crime</option>
+          </select>
+          <select class="filter-select" id="filter-status">
+            <option value="all">Tất cả trạng thái</option>
+            <option value="new">Mới</option>
+            <option value="learning">Đang học</option>
+            <option value="review">Ôn tập</option>
+            <option value="mastered">Đã thuộc</option>
+          </select>
+        </div>
+
+        <!-- Table -->
+        <div class="word-table-container" id="word-table-container">
+          <table class="word-table">
+            <thead>
+              <tr>
+                <th>Từ vựng</th>
+                <th>Nghĩa</th>
+                <th>Loại từ</th>
+                <th>Chủ đề</th>
+                <th>Trạng thái SRS</th>
+                <th>Ôn tiếp</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="word-table-body">
+            </tbody>
+          </table>
+        </div>
+
+        <div class="wordbank-empty hidden" id="wordbank-empty">
+          <div class="empty-icon">📭</div>
+          <h3>Kho từ vựng trống</h3>
+          <p class="text-muted">Hãy thêm từ vựng đầu tiên của bạn!</p>
+          <button class="btn btn-primary mt-lg" onclick="App.navigate('add-word')">➕ Thêm Từ Mới</button>
+        </div>
+
+        <!-- Data Actions -->
+        <div class="data-actions">
+          <button class="btn btn-ghost btn-sm" onclick="App.exportData()">📤 Xuất dữ liệu (JSON)</button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            📥 Nhập dữ liệu
+            <input type="file" accept=".json" style="display:none" id="import-file" onchange="App.importData(event)">
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="App.loadStarterPack()" id="btn-starter-pack">🚀 Tải Starter Pack (AWL)</button>
+        </div>
+      </section>
+
+      <!-- ──── PROGRESS ──── -->
+      <section class="page" id="page-progress">
+        <div class="page-header">
+          <h2>📊 <span class="gradient-text">Tiến Độ Học Tập</span></h2>
+          <p>Theo dõi hành trình chinh phục từ vựng IELTS của bạn</p>
+        </div>
+
+        <!-- Big Stats -->
+        <div class="progress-stats-row">
+          <div class="glass-card progress-big-stat">
+            <div class="big-stat-value text-gradient" id="progress-total">0</div>
+            <div class="big-stat-label">Tổng từ vựng</div>
+          </div>
+          <div class="glass-card progress-big-stat">
+            <div class="big-stat-value" style="color:var(--color-success)" id="progress-mastered">0</div>
+            <div class="big-stat-label">Đã thuộc lòng</div>
+          </div>
+          <div class="glass-card progress-big-stat">
+            <div class="big-stat-value" style="color:var(--color-warning)" id="progress-streak">0</div>
+            <div class="big-stat-label">Ngày liên tiếp 🔥</div>
+          </div>
+        </div>
+
+        <!-- Progress Grid -->
+        <div class="progress-grid">
+          <!-- Activity Heatmap -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">📅 Hoạt Động 90 Ngày Qua</h3>
+            <div class="heatmap-container">
+              <div class="heatmap" id="heatmap"></div>
+            </div>
+            <div class="heatmap-legend">
+              <span>Ít</span>
+              <div class="legend-item" style="background:rgba(255,255,255,0.04)"></div>
+              <div class="legend-item level-1" style="background:rgba(67,233,123,0.15)"></div>
+              <div class="legend-item level-2" style="background:rgba(67,233,123,0.3)"></div>
+              <div class="legend-item level-3" style="background:rgba(67,233,123,0.5)"></div>
+              <div class="legend-item level-4" style="background:rgba(67,233,123,0.75)"></div>
+              <span>Nhiều</span>
+            </div>
+          </div>
+
+          <!-- Mastery Breakdown -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">🏆 Mức Độ Thành Thạo</h3>
+            <div class="mastery-levels" id="mastery-levels">
+              <!-- Filled by JS -->
+            </div>
+          </div>
+
+          <!-- Topics Breakdown -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">🏷️ Từ Vựng Theo Chủ Đề</h3>
+            <div class="topic-bars" id="progress-topic-bars"></div>
+          </div>
+
+          <!-- Learning Tips -->
+          <div class="glass-card">
+            <h3 style="font-size:15px;font-weight:700;margin-bottom:var(--space-md);">💡 Mẹo Học Tập Hôm Nay</h3>
+            <div id="learning-tip" style="color:var(--text-secondary);font-size:14px;line-height:1.7">
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Word Detail Modal -->
+  <div class="modal-overlay" id="modal-word-detail">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-word-title">Chi tiết từ vựng</h3>
+        <button class="modal-close" onclick="App.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-word-body">
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger btn-sm" id="modal-delete-btn">🗑️ Xóa</button>
+        <button class="btn btn-ghost btn-sm" onclick="App.closeModal()">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
