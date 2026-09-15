@@ -329,10 +329,385 @@ const App = (() => {
     saveData();
   }
 
+  // ── AI Auto-Suggest Engine ──
+  const GEMINI_KEY_STORAGE = 'ielts_gemini_api_key';
+  let currentAudioUrl = null;
+  let aiDebounceTimer = null;
+
+  function getGeminiAPIKey() {
+    return localStorage.getItem(GEMINI_KEY_STORAGE) || '';
+  }
+
+  function openAIModal() {
+    const key = getGeminiAPIKey();
+    const input = document.getElementById('input-gemini-key');
+    if (input) input.value = key;
+    updateAIStatusBadge();
+    const modal = document.getElementById('modal-ai-config');
+    if (modal) modal.classList.add('active');
+  }
+
+  function closeAIModal() {
+    const modal = document.getElementById('modal-ai-config');
+    if (modal) modal.classList.remove('active');
+  }
+
+  function updateAIStatusBadge() {
+    const badge = document.getElementById('ai-status-badge');
+    if (!badge) return;
+    const key = getGeminiAPIKey();
+    if (key) {
+      badge.innerHTML = `<span style="color:var(--color-success);font-weight:600">✅ Đã kích hoạt Gemini AI (Gợi ý Band 8+)</span>`;
+    } else {
+      badge.innerHTML = `<span style="color:var(--color-accent);font-weight:600">⚡ Đang dùng Tra cứu AI Miễn Phí (Không cần key)</span>`;
+    }
+  }
+
+  function saveAIKey() {
+    const input = document.getElementById('input-gemini-key');
+    const key = input ? input.value.trim() : '';
+    if (key) {
+      localStorage.setItem(GEMINI_KEY_STORAGE, key);
+      showToast('Đã lưu Gemini API Key!', 'success');
+    } else {
+      localStorage.removeItem(GEMINI_KEY_STORAGE);
+      showToast('Đã xóa API Key!', 'info');
+    }
+    updateAIStatusBadge();
+    closeAIModal();
+  }
+
+  function removeAIKey() {
+    localStorage.removeItem(GEMINI_KEY_STORAGE);
+    const input = document.getElementById('input-gemini-key');
+    if (input) input.value = '';
+    updateAIStatusBadge();
+    showToast('Đã chuyển sang Tra cứu AI Miễn Phí', 'info');
+  }
+
+  // 1. Free Dictionary + Free Translation Fallback Engine
+  async function fetchFreeAISuggestions(word) {
+    let result = {
+      word: word,
+      pronunciation: '',
+      meaning: '',
+      pos: '',
+      collocations: '',
+      wordFamily: [],
+      originalSentence: '',
+      synonyms: '',
+      topic: 'General',
+      audioUrl: ''
+    };
+
+    try {
+      // Step A: Free Dictionary API
+      const dictResp = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+      if (dictResp.ok) {
+        const dictData = await dictResp.json();
+        const entry = dictData[0];
+        if (entry) {
+          // Pronunciation
+          result.pronunciation = entry.phonetic || (entry.phonetics && entry.phonetics.find(p => p.text)?.text) || '';
+          
+          // Audio
+          if (entry.phonetics) {
+            const audioObj = entry.phonetics.find(p => p.audio && p.audio.length > 0);
+            if (audioObj) result.audioUrl = audioObj.audio;
+          }
+
+          // Part of Speech & Definition
+          if (entry.meanings && entry.meanings.length > 0) {
+            const meaningObj = entry.meanings[0];
+            result.pos = meaningObj.partOfSpeech || '';
+            
+            if (meaningObj.definitions && meaningObj.definitions.length > 0) {
+              const def = meaningObj.definitions[0];
+              if (def.example) result.originalSentence = def.example;
+            }
+
+            // Synonyms
+            if (meaningObj.synonyms && meaningObj.synonyms.length > 0) {
+              result.synonyms = meaningObj.synonyms.slice(0, 4).join(', ');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Free Dictionary API call failed:', e);
+    }
+
+    try {
+      // Step B: Free Translation API (MyMemory)
+      const transResp = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(word)}&langpair=en|vi`);
+      if (transResp.ok) {
+        const transData = await transResp.json();
+        if (transData.responseData && transData.responseData.translatedText) {
+          let translated = transData.responseData.translatedText.toLowerCase();
+          if (!translated.includes('mymemory') && !translated.includes('quota')) {
+            result.meaning = translated;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('MyMemory Translation failed:', e);
+    }
+
+    // Step C: Smart Heuristic IELTS Topic & Collocations & Word Family
+    result.topic = inferIELTSTopic(word, result.pos, result.originalSentence);
+    
+    if (!result.collocations) {
+      result.collocations = generateHeuristicCollocations(word, result.pos);
+    }
+
+    if (result.wordFamily.length === 0) {
+      result.wordFamily = generateHeuristicWordFamily(word);
+    }
+
+    return result;
+  }
+
+  // 2. Gemini AI Flash Engine
+  async function fetchGeminiAISuggestions(word, apiKey) {
+    const prompt = `Return a raw JSON object (no markdown formatting, no triple backticks) for the English word "${word}" tailored for an IELTS student.
+JSON Schema:
+{
+  "word": "${word}",
+  "pronunciation": "IPA notation e.g. /əˈbæn.dən/",
+  "meaning": "Vietnamese meaning (accurate, concise, Band 7+ IELTS context)",
+  "pos": "noun | verb | adjective | adverb | phrase",
+  "collocations": "3 to 4 natural IELTS collocations separated by commas",
+  "wordFamily": [
+    {"word": "word1", "type": "noun/verb/adj/adv", "meaning": "Nghĩa tiếng Việt"}
+  ],
+  "originalSentence": "A high quality IELTS Academic example sentence containing the word",
+  "synonyms": "3 to 4 Band 7+ synonyms separated by commas",
+  "topic": "One of: General, Education, Environment, Technology, Health, Society, Government, Media, Globalization, Work & Economy, Arts & Culture, Science, Crime"
+}`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Gemini API HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+    return JSON.parse(text);
+  }
+
+  // Combined AI lookup dispatcher
+  async function getAISuggestions(word) {
+    const apiKey = getGeminiAPIKey();
+    if (apiKey) {
+      try {
+        console.log('🤖 Fetching via Gemini AI...');
+        const geminiRes = await fetchGeminiAISuggestions(word, apiKey);
+        return { source: 'gemini', ...geminiRes };
+      } catch (e) {
+        console.warn('Gemini API error, falling back to free engine:', e);
+        showToast('Gemini API key bị lỗi, chuyển sang Tra cứu AI Miễn Phí', 'info');
+      }
+    }
+
+    console.log('⚡ Fetching via Free AI Engine...');
+    const freeRes = await fetchFreeAISuggestions(word);
+    return { source: 'free', ...freeRes };
+  }
+
+  // Audio Playback
+  function playAudio(specificWord) {
+    const word = specificWord || document.getElementById('input-word').value.trim();
+    if (!word) return;
+
+    if (currentAudioUrl) {
+      const audio = new Audio(currentAudioUrl);
+      audio.play().catch(() => {
+        speechSynthesisFallback(word);
+      });
+    } else {
+      speechSynthesisFallback(word);
+    }
+  }
+
+  function speechSynthesisFallback(word) {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(word);
+      utterance.lang = 'en-US';
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      showToast('Trình duyệt không hỗ trợ phát âm thanh', 'error');
+    }
+  }
+
+  // Heuristics helpers
+  function inferIELTSTopic(word, pos, sentence) {
+    const text = (word + ' ' + (sentence || '')).toLowerCase();
+    if (text.match(/envir|climat|eco|natur|planet|pollut|waste|recyc/)) return 'Environment';
+    if (text.match(/tech|comput|data|internet|ai|digital|softwar|robot/)) return 'Technology';
+    if (text.match(/school|learn|student|teach|educat|academic|class|degree/)) return 'Education';
+    if (text.match(/health|doctor|diseas|hospit|medic|diet|exercis|well/)) return 'Health';
+    if (text.match(/govern|polic|law|state|nation|polit|rule/)) return 'Government';
+    if (text.match(/job|work|econom|financ|money|busin|market|employ/)) return 'Work & Economy';
+    if (text.match(/societ|peopl|commun|cultur|human|populat/)) return 'Society';
+    if (text.match(/scienc|research|experiment|laborat|physic|biol/)) return 'Science';
+    if (text.match(/crime|legal|court|polic|offens|punish/)) return 'Crime';
+    if (text.match(/art|music|paint|film|theatr|museum/)) return 'Arts & Culture';
+    if (text.match(/media|news|press|broadcast|social media/)) return 'Media';
+    if (text.match(/global|international|world|trade/)) return 'Globalization';
+    return 'General';
+  }
+
+  function generateHeuristicCollocations(word, pos) {
+    const p = (pos || '').toLowerCase();
+    if (p.includes('verb')) return `${word} a problem, ${word} a goal, ${word} effectively`;
+    if (p.includes('adj')) return `highly ${word}, extremely ${word}, ${word} impact`;
+    if (p.includes('noun')) return `significant ${word}, ${word} of the system, main ${word}`;
+    return `key ${word}, ${word} factor`;
+  }
+
+  function generateHeuristicWordFamily(word) {
+    const lower = word.toLowerCase();
+    const family = [];
+    if (lower.endsWith('able') || lower.endsWith('ible')) {
+      const base = lower.replace(/(able|ible)$/, '');
+      family.push({ word: base + 'ity', type: 'noun', meaning: `tính chất ${lower}` });
+      family.push({ word: base + 'ly', type: 'adv', meaning: `một cách ${lower}` });
+    } else if (lower.endsWith('ion')) {
+      const base = lower.replace(/ion$/, '');
+      family.push({ word: base + 'e', type: 'verb', meaning: 'hành động' });
+      family.push({ word: base + 'ive', type: 'adj', meaning: 'có tính chất' });
+    } else if (lower.endsWith('ate')) {
+      family.push({ word: lower + 'ion', type: 'noun', meaning: 'sự ' + lower });
+      family.push({ word: lower + 'ive', type: 'adj', meaning: 'có tính ' + lower });
+    }
+    return family;
+  }
+
+  // Auto-Fill Form Runner
+  async function triggerAISuggestion() {
+    const wordInput = document.getElementById('input-word');
+    const word = wordInput ? wordInput.value.trim() : '';
+
+    if (!word) {
+      showToast('Vui lòng nhập từ tiếng Anh trước khi gọi AI!', 'error');
+      wordInput.focus();
+      return;
+    }
+
+    const btn = document.getElementById('btn-ai-suggest');
+    const origBtnHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<span class="ai-sparkle">⏳</span> Đang tra AI...`;
+
+    try {
+      const data = await getAISuggestions(word);
+      
+      // Update form fields
+      const pronInput = document.getElementById('input-pronunciation');
+      const meanInput = document.getElementById('input-meaning');
+      const posSelect = document.getElementById('input-pos');
+      const colInput = document.getElementById('input-collocations');
+      const senInput = document.getElementById('input-original-sentence');
+      const synInput = document.getElementById('input-synonyms');
+      const topicSelect = document.getElementById('input-topic');
+
+      if (data.pronunciation) pronInput.value = data.pronunciation;
+      if (data.meaning) meanInput.value = data.meaning;
+      if (data.pos) posSelect.value = data.pos.toLowerCase();
+      if (data.collocations) colInput.value = data.collocations;
+      if (data.originalSentence) senInput.value = data.originalSentence;
+      if (data.synonyms) synInput.value = data.synonyms;
+      if (data.topic) topicSelect.value = data.topic;
+
+      // Store Audio URL
+      if (data.audioUrl) {
+        currentAudioUrl = data.audioUrl;
+      } else {
+        currentAudioUrl = null;
+      }
+
+      // Audio Button Visibility
+      const audioBtn = document.getElementById('btn-play-audio');
+      if (audioBtn) audioBtn.style.display = 'inline-flex';
+
+      // Word Family
+      const familyList = document.getElementById('word-family-list');
+      familyList.innerHTML = '';
+      if (data.wordFamily && Array.isArray(data.wordFamily)) {
+        data.wordFamily.forEach(f => {
+          addWordFamilyEntry();
+          const entries = familyList.querySelectorAll('.word-family-entry');
+          const last = entries[entries.length - 1];
+          if (last) {
+            last.querySelector('.family-word').value = f.word || '';
+            last.querySelector('.family-type').value = f.type || '';
+            last.querySelector('.family-meaning').value = f.meaning || '';
+          }
+        });
+      }
+
+      // Apply Glow Animation
+      [pronInput, meanInput, posSelect, colInput, senInput, synInput, topicSelect].forEach(el => {
+        if (el && el.value) {
+          el.classList.remove('ai-auto-filled');
+          void el.offsetWidth; // trigger reflow
+          el.classList.add('ai-auto-filled');
+        }
+      });
+
+      updatePreview();
+
+      const sourceLabel = data.source === 'gemini' ? 'Gemini AI ✨' : 'AI Tra cứu Miễn Phí ⚡';
+      showToast(`Đã tự động điền bằng ${sourceLabel}!`, 'success');
+
+    } catch (err) {
+      console.error('AI Auto-suggest error:', err);
+      showToast('Lỗi khi tra cứu AI: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = origBtnHTML;
+    }
+  }
+
+  function handleWordInputDebounced(e) {
+    const val = e.target.value.trim();
+    clearTimeout(aiDebounceTimer);
+    
+    // Enable audio button
+    const audioBtn = document.getElementById('btn-play-audio');
+    if (audioBtn) audioBtn.style.display = val ? 'inline-flex' : 'none';
+
+    if (val.length >= 3) {
+      aiDebounceTimer = setTimeout(() => {
+        // Auto trigger if meaning field is empty
+        const currentMeaning = document.getElementById('input-meaning').value.trim();
+        if (!currentMeaning) {
+          triggerAISuggestion();
+        }
+      }, 900);
+    }
+  }
+
   // ── Add Word ──
   function initAddWordForm() {
     const form = document.getElementById('add-word-form');
     form.addEventListener('submit', handleAddWord);
+
+    // Debounced AI auto-suggest on typing English word
+    const wordInput = document.getElementById('input-word');
+    if (wordInput) wordInput.addEventListener('input', handleWordInputDebounced);
 
     // Live preview
     ['input-word', 'input-pronunciation', 'input-meaning',
@@ -1367,6 +1742,12 @@ const App = (() => {
     exportData,
     importData,
     loadStarterPack,
-    updatePreview
+    updatePreview,
+    openAIModal,
+    closeAIModal,
+    saveAIKey,
+    removeAIKey,
+    triggerAISuggestion,
+    playAudio
   };
 })();

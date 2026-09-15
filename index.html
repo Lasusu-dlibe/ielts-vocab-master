@@ -153,9 +153,14 @@
 
       <!-- ──── ADD WORD ──── -->
       <section class="page" id="page-add-word">
-        <div class="page-header">
-          <h2>➕ <span class="gradient-text">Thêm Từ Mới</span></h2>
-          <p>Ghi chép từ vựng theo phương pháp ERRU — đầy đủ ngữ cảnh để nhớ lâu</p>
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2>➕ <span class="gradient-text">Thêm Từ Mới</span></h2>
+            <p>Ghi chép từ vựng theo phương pháp ERRU — đầy đủ ngữ cảnh để nhớ lâu</p>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-open-ai-config" onclick="App.openAIModal()" style="gap:6px;border:1px solid var(--border-glass)">
+            ⚙️ Cấu hình AI Key
+          </button>
         </div>
 
         <div class="add-word-layout">
@@ -168,11 +173,19 @@
                 <div class="form-row">
                   <div class="form-group">
                     <label>Từ vựng <span class="required">*</span></label>
-                    <input type="text" class="form-input" id="input-word" placeholder="vd: abandon" required>
+                    <div class="input-with-button">
+                      <input type="text" class="form-input" id="input-word" placeholder="vd: abandon" required>
+                      <button type="button" class="btn btn-ai-suggest" id="btn-ai-suggest" onclick="App.triggerAISuggestion()" title="Tự động điền thông tin bằng AI">
+                        <span class="ai-sparkle">✨</span> Gợi ý AI
+                      </button>
+                    </div>
                   </div>
                   <div class="form-group">
                     <label>Phát âm (IPA)</label>
-                    <input type="text" class="form-input" id="input-pronunciation" placeholder="vd: /əˈbæn.dən/">
+                    <div class="input-with-audio">
+                      <input type="text" class="form-input" id="input-pronunciation" placeholder="vd: /əˈbæn.dən/">
+                      <button type="button" class="btn-audio" id="btn-play-audio" onclick="App.playAudio()" title="Nghe phát âm" style="display:none">🔊</button>
+                    </div>
                   </div>
                 </div>
                 <div class="form-row">
@@ -575,6 +588,36 @@
       <div class="modal-footer">
         <button class="btn btn-danger btn-sm" id="modal-delete-btn">🗑️ Xóa</button>
         <button class="btn btn-ghost btn-sm" onclick="App.closeModal()">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Key Config Modal -->
+  <div class="modal-overlay" id="modal-ai-config">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>⚙️ Cấu hình Gemini AI Key</h3>
+        <button class="modal-close" onclick="App.closeAIModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:14px;color:var(--text-secondary);margin-bottom:16px;line-height:1.6">
+          Web đã tích hợp sẵn <strong>Tra cứu AI Miễn Phí</strong> (hoạt động 100% không cần key). Nếu bạn muốn mở khóa gợi ý chuẩn <strong>IELTS Band 8+</strong> (Word Family, Collocations sâu hơn), hãy dán Google Gemini API Key vào bên dưới:
+        </p>
+        <div class="form-group" style="margin-bottom:12px">
+          <label>Google Gemini API Key</label>
+          <input type="password" class="form-input" id="input-gemini-key" placeholder="AIzaSy...">
+          <div class="form-hint" style="margin-top:8px;line-height:1.5">
+            💡 Lấy API Key miễn phí tại <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--color-accent);text-decoration:underline;font-weight:600">Google AI Studio</a>. Key được bảo mật hoàn toàn trong máy của bạn.
+          </div>
+        </div>
+        <div id="ai-status-badge" style="margin-top:12px;font-size:13px;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,0.05);display:flex;align-items:center;gap:8px">
+          <!-- JS fills this -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary btn-sm" onclick="App.saveAIKey()">💾 Lưu Key</button>
+        <button class="btn btn-ghost btn-sm" onclick="App.removeAIKey()" style="color:var(--color-danger)">🗑️ Xóa Key</button>
+        <button class="btn btn-ghost btn-sm" onclick="App.closeAIModal()">Đóng</button>
       </div>
     </div>
   </div>
